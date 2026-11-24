@@ -1,0 +1,583 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>审计是如何运行的 · 从业务承接到报告出具</title>
+<style>
+  :root{
+    --ink:#0f172a; --ink-2:#334155; --ink-3:#64748b;
+    --line:#e2e8f0; --bg:#f6f8fb; --card:#ffffff;
+    --navy:#152a52; --navy-2:#1e3a8a; --blue:#2563eb;
+    --amber:#b45309; --amber-bg:#fffbeb;
+    --green:#15803d; --green-bg:#f0fdf4;
+    --red:#b91c1c; --red-bg:#fef2f2;
+    --radius:14px;
+    --shadow:0 1px 2px rgba(15,23,42,.04), 0 8px 24px -12px rgba(15,23,42,.18);
+  }
+  *{box-sizing:border-box}
+  html{-webkit-text-size-adjust:100%}
+  body{
+    margin:0; background:var(--bg); color:var(--ink);
+    font-family:"PingFang SC","Microsoft YaHei","Hiragino Sans GB",system-ui,-apple-system,"Segoe UI",sans-serif;
+    line-height:1.7; font-size:15px;
+  }
+  .wrap{max-width:1080px; margin:0 auto; padding:0 20px}
+
+  /* ---------- hero ---------- */
+  .hero{
+    background:linear-gradient(140deg,#0f1f3d 0%, #152a52 45%, #1c3a6e 100%);
+    color:#fff; padding:56px 0 48px; position:relative; overflow:hidden;
+  }
+  .hero:after{
+    content:""; position:absolute; right:-120px; top:-120px; width:380px; height:380px;
+    border-radius:50%; background:radial-gradient(circle,rgba(96,165,250,.28),transparent 65%);
+  }
+  .hero .kicker{
+    display:inline-block; font-size:12px; letter-spacing:.18em; text-transform:uppercase;
+    color:#93c5fd; border:1px solid rgba(147,197,253,.35); border-radius:999px;
+    padding:4px 12px; margin-bottom:18px;
+  }
+  .hero h1{margin:0 0 14px; font-size:clamp(26px,4.4vw,40px); line-height:1.25; letter-spacing:.01em}
+  .hero p{margin:0; max-width:640px; color:#cbd5e1; font-size:15.5px}
+  .hero .chips{display:flex; flex-wrap:wrap; gap:10px; margin-top:26px}
+  .chip{
+    background:rgba(255,255,255,.08); border:1px solid rgba(255,255,255,.14);
+    border-radius:10px; padding:8px 13px; font-size:13px; color:#e2e8f0;
+  }
+  .chip b{color:#fff; font-weight:600}
+
+  /* ---------- sections ---------- */
+  section{padding:46px 0 8px}
+  .sec-head{display:flex; align-items:baseline; gap:12px; margin-bottom:6px}
+  .sec-num{
+    font-family:ui-monospace,Consolas,monospace; font-size:13px; color:var(--blue);
+    background:#eff6ff; border:1px solid #dbeafe; border-radius:6px;
+    padding:1px 8px; letter-spacing:.04em;
+  }
+  .sec-head h2{margin:0; font-size:20px; letter-spacing:.01em}
+  .sec-desc{margin:0 0 20px; color:var(--ink-3); font-size:14px}
+
+  /* ---------- flow ---------- */
+  .flow-nav{
+    display:grid; grid-template-columns:repeat(7,1fr); gap:8px; margin-bottom:18px;
+  }
+  .flow-nav button{
+    appearance:none; cursor:pointer; font:inherit; text-align:left;
+    background:var(--card); border:1px solid var(--line); border-radius:10px;
+    padding:10px 10px 9px; color:var(--ink-2); transition:.18s;
+    display:flex; flex-direction:column; gap:2px; min-height:74px;
+  }
+  .flow-nav button .s{font-family:ui-monospace,Consolas,monospace; font-size:11px; color:#94a3b8}
+  .flow-nav button .t{font-size:13px; font-weight:600; line-height:1.35; color:var(--ink)}
+  .flow-nav button:hover{border-color:#bfdbfe; background:#fbfdff}
+  .flow-nav button[aria-selected="true"]{
+    background:var(--navy); border-color:var(--navy); box-shadow:var(--shadow);
+  }
+  .flow-nav button[aria-selected="true"] .t{color:#fff}
+  .flow-nav button[aria-selected="true"] .s{color:#93c5fd}
+
+  .detail{
+    background:var(--card); border:1px solid var(--line); border-radius:var(--radius);
+    box-shadow:var(--shadow); padding:22px 24px;
+  }
+  .detail-head{display:flex; align-items:center; gap:10px; margin-bottom:4px}
+  .detail-head .badge{
+    font-size:11px; font-family:ui-monospace,Consolas,monospace;
+    background:#eff6ff; color:var(--blue); border-radius:5px; padding:2px 7px;
+  }
+  .detail-head h3{margin:0; font-size:17px}
+  .detail .goal{margin:0 0 16px; color:var(--ink-2); font-size:14px}
+  .detail-grid{display:grid; grid-template-columns:1.25fr 1fr; gap:18px}
+  .block h4{
+    margin:0 0 7px; font-size:12px; letter-spacing:.1em; text-transform:uppercase; color:var(--ink-3);
+  }
+  .block ul{margin:0; padding-left:17px}
+  .block li{margin:3px 0; font-size:13.5px; color:var(--ink-2)}
+  .block li::marker{color:#94a3b8}
+  .out{
+    background:var(--amber-bg); border:1px solid #fde68a; border-radius:9px;
+    padding:9px 12px; font-size:13px; color:#78350f; margin-top:12px;
+  }
+  .out b{color:var(--amber)}
+
+  /* ---------- interactive: risk ---------- */
+  .panel{
+    background:var(--card); border:1px solid var(--line); border-radius:var(--radius);
+    padding:22px 24px; box-shadow:var(--shadow);
+  }
+  .panel-grid{display:grid; grid-template-columns:1fr 300px; gap:26px; align-items:start}
+  .ctl{margin-bottom:16px}
+  .ctl-label{font-size:12.5px; color:var(--ink-3); margin-bottom:6px}
+  .ctl-label b{color:var(--ink); font-weight:600}
+  .seg{display:inline-flex; border:1px solid var(--line); border-radius:9px; overflow:hidden}
+  .seg button{
+    appearance:none; cursor:pointer; font:inherit; font-size:13px; padding:6px 15px;
+    background:#fff; border:0; border-right:1px solid var(--line); color:var(--ink-2); transition:.15s;
+  }
+  .seg button:last-child{border-right:0}
+  .seg button:hover{background:#f8fafc}
+  .seg button[aria-pressed="true"]{background:var(--navy); color:#fff}
+  .formula{
+    font-family:ui-monospace,Consolas,monospace; font-size:13px; color:var(--ink-2);
+    background:#f8fafc; border:1px dashed var(--line); border-radius:8px; padding:9px 12px; margin:14px 0 0;
+  }
+  .readout{
+    background:linear-gradient(160deg,#0f1f3d,#1c3a6e); color:#fff; border-radius:12px;
+    padding:20px; text-align:center;
+  }
+  .readout .lbl{font-size:11.5px; letter-spacing:.12em; color:#93c5fd; text-transform:uppercase}
+  .readout .big{
+    font-family:ui-monospace,Consolas,monospace; font-size:40px; line-height:1.1; font-weight:600;
+    margin:6px 0 2px; letter-spacing:-.02em;
+  }
+  .readout .sub{font-size:12px; color:#cbd5e1}
+  .meter{height:7px; border-radius:99px; background:rgba(255,255,255,.16); margin:16px 0 10px; overflow:hidden}
+  .meter i{display:block; height:100%; border-radius:99px; background:linear-gradient(90deg,#60a5fa,#93c5fd); transition:width .35s ease}
+  .verdict{font-size:12.5px; color:#e2e8f0; line-height:1.6; text-align:left; border-top:1px solid rgba(255,255,255,.14); padding-top:12px; margin-top:12px}
+  .verdict b{color:#93c5fd}
+
+  /* ---------- interactive: materiality ---------- */
+  .mat-grid{display:grid; grid-template-columns:repeat(3,1fr); gap:14px; margin-top:16px}
+  .mat-card{border:1px solid var(--line); border-radius:10px; padding:14px 16px; background:#fbfcfe}
+  .mat-card .l{font-size:12px; color:var(--ink-3); margin-bottom:4px}
+  .mat-card .v{font-family:ui-monospace,Consolas,monospace; font-size:22px; font-weight:600; color:var(--navy-2)}
+  .mat-card .n{font-size:11.5px; color:var(--ink-3); margin-top:3px}
+  .field{display:flex; align-items:center; gap:10px; flex-wrap:wrap; margin-bottom:6px}
+  .field label{font-size:13px; color:var(--ink-3); min-width:96px}
+  input[type="number"]{
+    font:inherit; font-family:ui-monospace,Consolas,monospace; font-size:14px;
+    width:130px; padding:6px 10px; border:1px solid var(--line); border-radius:8px; color:var(--ink);
+  }
+  input[type="number"]:focus{outline:2px solid #bfdbfe; outline-offset:1px; border-color:#93c5fd}
+  select{
+    font:inherit; font-size:14px; padding:6px 10px; border:1px solid var(--line);
+    border-radius:8px; background:#fff; color:var(--ink);
+  }
+
+  /* ---------- loops ---------- */
+  .loops{display:grid; grid-template-columns:repeat(3,1fr); gap:12px}
+  .loop{
+    background:var(--card); border:1px solid var(--line); border-radius:10px; padding:14px 16px;
+  }
+  .loop h4{margin:0 0 5px; font-size:14px}
+  .loop p{margin:0; font-size:12.8px; color:var(--ink-3); line-height:1.6}
+  .loop .tag{
+    display:inline-block; font-family:ui-monospace,Consolas,monospace; font-size:10.5px;
+    color:var(--blue); background:#eff6ff; border-radius:4px; padding:1px 6px; margin-bottom:6px;
+  }
+
+  /* ---------- opinions ---------- */
+  .ops{display:grid; gap:10px}
+  .op{
+    background:var(--card); border:1px solid var(--line); border-left:4px solid var(--line);
+    border-radius:10px; padding:13px 16px; cursor:pointer; transition:.16s;
+  }
+  .op:hover{background:#fbfdff; border-color:#cbd5e1}
+  .op .row{display:flex; align-items:center; gap:10px}
+  .op .name{font-weight:600; font-size:14.5px}
+  .op .mark{
+    font-size:11px; color:var(--ink-3); font-family:ui-monospace,Consolas,monospace; margin-left:auto;
+  }
+  .op .body{display:none; margin-top:9px; font-size:13.2px; color:var(--ink-2); border-top:1px dashed var(--line); padding-top:9px}
+  .op.open .body{display:block}
+  .op.ok{border-left-color:var(--green)}
+  .op.emp{border-left-color:#0284c7}
+  .op.qual{border-left-color:var(--amber)}
+  .op.bad{border-left-color:var(--red)}
+  .op.dis{border-left-color:#7c3aed}
+  .op .body .cond{display:block; margin-top:3px}
+  .op .body .cond span{color:var(--ink-3)}
+
+  /* ---------- footer ---------- */
+  footer{
+    margin-top:52px; border-top:1px solid var(--line); background:#fff;
+    padding:24px 0 34px; color:var(--ink-3); font-size:12.5px;
+  }
+  footer .notes{display:grid; grid-template-columns:1fr 1fr; gap:18px}
+  footer b{color:var(--ink-2)}
+
+  @media (max-width:900px){
+    .flow-nav{grid-template-columns:repeat(4,1fr)}
+    .detail-grid,.panel-grid{grid-template-columns:1fr}
+    .mat-grid,.loops{grid-template-columns:1fr 1fr}
+    footer .notes{grid-template-columns:1fr}
+  }
+  @media (max-width:600px){
+    .flow-nav{grid-template-columns:repeat(2,1fr)}
+    .mat-grid,.loops{grid-template-columns:1fr}
+    .hero{padding:40px 0 34px}
+  }
+  @media (prefers-reduced-motion:reduce){
+    *{transition:none !important}
+  }
+</style>
+</head>
+<body>
+
+<header class="hero">
+  <div class="wrap">
+    <span class="kicker">AUDIT · 审计全景</span>
+    <h1>审计是如何运行的</h1>
+    <p>从接到业务到出具报告，一份财务报表要经过七道关。审计不是"查账"，而是用证据把风险压到可接受的水平，最后给出一个有边界的结论。</p>
+    <div class="chips">
+      <span class="chip"><b>合理保证</b>，不是绝对保证</span>
+      <span class="chip">核心公式：<b>审计风险 = 重大错报风险 × 检查风险</b></span>
+      <span class="chip">立场：<b>独立</b>于管理层</span>
+    </div>
+  </div>
+</header>
+
+<main class="wrap">
+
+  <!-- 1 流程 -->
+  <section id="flow">
+    <div class="sec-head"><span class="sec-num">01</span><h2>七个阶段</h2></div>
+    <p class="sec-desc">点开每一阶段，看它的目标、要做的事、留下的底稿，以及最常出错的地方。</p>
+
+    <div class="flow-nav" role="tablist" id="flowNav"></div>
+    <div class="detail" id="flowDetail"></div>
+  </section>
+
+  <!-- 2 风险模型 -->
+  <section id="risk">
+    <div class="sec-head"><span class="sec-num">02</span><h2>审计风险模型</h2></div>
+    <p class="sec-desc">调一下固有风险和控制风险，看“允许的检查风险”怎么变——它直接决定你要做多少实质性程序。</p>
+
+    <div class="panel">
+      <div class="panel-grid">
+        <div>
+          <div class="ctl">
+            <div class="ctl-label">固有风险 <b>IR</b> · 业务本身容易出错的程度</div>
+            <div class="seg" id="segIR" data-target="IR">
+              <button type="button" data-v="0.5" aria-pressed="false">低</button>
+              <button type="button" data-v="0.7" aria-pressed="true">中</button>
+              <button type="button" data-v="0.9" aria-pressed="false">高</button>
+            </div>
+          </div>
+          <div class="ctl">
+            <div class="ctl-label">控制风险 <b>CR</b> · 被审计单位内控没能及时防止或发现错报的可能性</div>
+            <div class="seg" id="segCR" data-target="CR">
+              <button type="button" data-v="0.3" aria-pressed="false">低</button>
+              <button type="button" data-v="0.5" aria-pressed="true">中</button>
+              <button type="button" data-v="0.8" aria-pressed="false">高</button>
+            </div>
+          </div>
+          <p class="formula">检查风险 DR = 审计风险 AR ÷ (IR × CR)，其中 AR 取 5%（可接受的低水平）</p>
+        </div>
+
+        <div class="readout">
+          <div class="lbl">允许的检查风险 DR</div>
+          <div class="big" id="drVal">14.3%</div>
+          <div class="sub" id="drSub">IR 0.7 × CR 0.5</div>
+          <div class="meter"><i id="drBar" style="width:14.3%"></i></div>
+          <div class="verdict" id="drVerdict"></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 3 重要性 -->
+  <section id="materiality">
+    <div class="sec-head"><span class="sec-num">03</span><h2>重要性水平</h2></div>
+    <p class="sec-desc">审计不可能查清每一分钱，所以要先定一条“错了也算大事”的线。改改数字，看到它怎么分解。</p>
+
+    <div class="panel">
+      <div class="field">
+        <label for="baseNum">税前利润</label>
+        <input type="number" id="baseNum" value="8000" min="1" step="100"> <span style="font-size:13px;color:var(--ink-3)">万元</span>
+      </div>
+      <div class="field">
+        <label for="basePct">常用基准</label>
+        <select id="basePct">
+          <option value="5" selected>税前利润 5%</option>
+          <option value="1">营业收入 1%</option>
+          <option value="0.5">总资产 0.5%</option>
+          <option value="1">净资产 1%</option>
+        </select>
+      </div>
+
+      <div class="mat-grid">
+        <div class="mat-card">
+          <div class="l">财务报表整体重要性</div>
+          <div class="v" id="mOverall">400.0</div>
+          <div class="n">万元 · 超过它的错报会改变使用者决策</div>
+        </div>
+        <div class="mat-card">
+          <div class="l">实际执行的重要性</div>
+          <div class="v" id="mPerf">300.0</div>
+          <div class="n">万元 · 按 75% 取，留出未发现错报的缓冲</div>
+        </div>
+        <div class="mat-card">
+          <div class="l">明显微小错报临界值</div>
+          <div class="v" id="mTrivial">20.0</div>
+          <div class="n">万元 · 按 5% 取，低于它不必累积</div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 4 循环 -->
+  <section id="loops">
+    <div class="sec-head"><span class="sec-num">04</span><h2>按业务循环切分</h2></div>
+    <p class="sec-desc">实际项目里，审计是按“钱怎么流”拆成几个循环分工的——每个循环都有典型的舞弊手法。</p>
+    <div class="loops" id="loopGrid"></div>
+  </section>
+
+  <!-- 5 意见 -->
+  <section id="opinion">
+    <div class="sec-head"><span class="sec-num">05</span><h2>最后：出什么意见</h2></div>
+    <p class="sec-desc">意见类型不是"态度好坏"，而由两件事决定：错报是否重大、是否广泛。</p>
+    <div class="ops" id="opList"></div>
+  </section>
+
+</main>
+
+<footer>
+  <div class="wrap notes">
+    <div>
+      <b>一句话记住</b><br>
+      审计 = 识别风险 → 设计程序 → 获取证据 → 评价证据 → 在证据不足的地方明确说"我没法保证"。
+    </div>
+    <div>
+      <b>本页说明</b><br>
+      数值为教学演示，比例取自常规实务区间（整体重要性常用基准 0.5%–5%，实际执行重要性 50%–75%，明显微小错报 3%–5%）。实际项目须按被审计单位情况判断，不构成执业依据。
+    </div>
+  </div>
+</footer>
+
+<script>
+(function () {
+  "use strict";
+
+  /* ============ 01 流程 ============ */
+  var STAGES = [
+    {
+      s: "01", t: "业务承接",
+      goal: "先判断这单能不能接。接错客户，后面所有程序都白做。",
+      acts: [
+        "评价独立性与专业胜任能力：有没有利害关系、团队够不够格",
+        "与前任注册会计师沟通，了解更换事务所的原因",
+        "了解客户诚信状况、经营风险，必要时做背景调查",
+        "签订审计业务约定书，明确范围与责任"
+      ],
+      outs: ["业务约定书", "独立性声明", "承接评价记录"],
+      risk: "独立性有瑕疵却硬接——后续所有工作都可能被推翻"
+    },
+    {
+      s: "02", t: "计划审计",
+      goal: "在动手前定策略：往哪查、查多深、投多少人。",
+      acts: [
+        "了解被审计单位及其环境：行业、监管、会计政策、目标与战略",
+        "初步确定重要性水平",
+        "识别和评估重大错报风险，标记高风险领域",
+        "制定总体审计策略与具体审计计划，分配人员与时间"
+      ],
+      outs: ["总体审计策略", "具体审计计划", "重要性确定表"],
+      risk: "计划照抄上年模板，没跟上今年业务变化（新收入准则、新并购）"
+    },
+    {
+      s: "03", t: "风险评估程序",
+      goal: "把“哪里可能错”变成一张有依据的风险地图。",
+      acts: [
+        "询问管理层与治理层，包括财务以外的部门",
+        "实施分析程序：比率、趋势、与行业和预算对比",
+        "观察与检查：走一遍业务流程，看单据怎么流转",
+        "了解内部控制：控制环境、风险评估过程、信息系统、控制活动、监督"
+      ],
+      outs: ["风险评估汇总", "内部控制了解记录", "穿行测试底稿"],
+      risk: "只问财务不问业务，错过业务模式变化带来的系统性风险"
+    },
+    {
+      s: "04", t: "风险应对",
+      goal: "针对评估出的风险，设计“打哪里、怎么打”。",
+      acts: [
+        "总体应对措施：增加不可预见性、调整程序性质与时间",
+        "对认定层次实施进一步审计程序：控制测试 + 实质性程序",
+        "决定是依赖内控（多测控制）还是绕过内控（多做实质性）",
+        "特别考虑舞弊风险、关联方交易、会计估计"
+      ],
+      outs: ["进一步审计程序方案", "控制测试计划"],
+      risk: "风险评得很高，实际程序却只做了走形式的抽凭"
+    },
+    {
+      s: "05", t: "实质性程序",
+      goal: "直接抓错报。这是审计工作量最大的一段。",
+      acts: [
+        "细节测试：函证、监盘、检查凭证、重新计算、截止测试",
+        "实质性分析程序：建立可预期关系，找异常波动",
+        "扩大样本量覆盖高风险科目（收入、应收、存货、商誉）",
+        "对异常事项追到底，不轻易接受管理层的口头解释"
+      ],
+      outs: ["银行及往来函证", "存货监盘记录", "抽样底稿与差异说明"],
+      risk: "函证由客户代发代收，等于自己给自己作证"
+    },
+    {
+      s: "06", t: "完成阶段",
+      goal: "收口：证据够不够，账上还有没有没处理的事。",
+      acts: [
+        "汇总已识别错报，评价未更正错报的影响",
+        "复核期后事项、或有事项、持续经营能力",
+        "取得管理层声明书，与治理层沟通审计发现",
+        "项目质量复核（高风险项目必经），整理归档工作底稿"
+      ],
+      outs: ["错报汇总表", "管理层声明书", "治理层沟通函", "质量复核记录"],
+      risk: "底稿在报告日后才补，归档不及时导致证据链断裂"
+    },
+    {
+      s: "07", t: "出具报告",
+      goal: "把结论写成一段有边界的话。",
+      acts: [
+        "根据证据得出结论，形成审计意见",
+        "选择意见类型：无保留 / 带强调事项段 / 保留 / 否定 / 无法表示",
+        "在报告中描述关键审计事项（KAM）",
+        "签署并出具报告，完成后续归档"
+      ],
+      outs: ["审计报告", "关键审计事项说明"],
+      risk: "证据不足却出无保留意见——这是最严重的执业失败"
+    }
+  ];
+
+  var nav = document.getElementById("flowNav");
+  var detail = document.getElementById("flowDetail");
+
+  STAGES.forEach(function (st, i) {
+    var b = document.createElement("button");
+    b.type = "button";
+    b.setAttribute("role", "tab");
+    b.setAttribute("aria-selected", i === 0 ? "true" : "false");
+    b.innerHTML = '<span class="s">' + st.s + '</span><span class="t">' + st.t + '</span>';
+    b.addEventListener("click", function () {
+      Array.prototype.forEach.call(nav.children, function (c) {
+        c.setAttribute("aria-selected", "false");
+      });
+      b.setAttribute("aria-selected", "true");
+      render(st);
+    });
+    nav.appendChild(b);
+  });
+
+  function render(st) {
+    var html = '';
+    html += '<div class="detail-head"><span class="badge">' + st.s + '</span><h3>' + st.t + '</h3></div>';
+    html += '<p class="goal">' + st.goal + '</p>';
+    html += '<div class="detail-grid">';
+    html += '<div class="block"><h4>关键动作</h4><ul>';
+    st.acts.forEach(function (a) { html += '<li>' + a + '</li>'; });
+    html += '</ul></div>';
+    html += '<div class="block"><h4>留下什么</h4><ul>';
+    st.outs.forEach(function (o) { html += '<li>' + o + '</li>'; });
+    html += '</ul></div>';
+    html += '</div>';
+    html += '<div class="out"><b>最常见的失败：</b>' + st.risk + '</div>';
+    detail.innerHTML = html;
+  }
+  render(STAGES[0]);
+
+  /* ============ 02 风险模型 ============ */
+  var AR = 0.05;
+  var state = { IR: 0.7, CR: 0.5 };
+
+  function updateRisk() {
+    var dr = AR / (state.IR * state.CR);
+    var pct = Math.min(dr * 100, 100);
+    document.getElementById("drVal").textContent = (dr * 100).toFixed(1) + "%";
+    document.getElementById("drSub").textContent =
+      "IR " + state.IR.toFixed(1) + " × CR " + state.CR.toFixed(1) + " = " + (state.IR * state.CR).toFixed(2);
+    document.getElementById("drBar").style.width = pct + "%";
+
+    var v;
+    if (dr <= 0.10) {
+      v = "<b>检查风险容忍度很低。</b>必须做更多、更可靠的实质性程序：扩大样本、增加外部证据（函证、监盘）、把程序安排在期末而非期中，并由更有经验的成员执行。";
+    } else if (dr <= 0.25) {
+      v = "<b>中低容忍度。</b>实质性程序是主力，可适当依赖内控测试的结果；对重大科目保持完整覆盖，其余科目抽样。";
+    } else if (dr <= 0.60) {
+      v = "<b>相对宽松。</b>可以在合理依赖内控的基础上降低实质性程序的范围，但分析程序要做得更扎实，防止漏掉系统性偏差。";
+    } else {
+      v = "<b>容忍度较高。</b>提示：这不代表可以少干活——若两个风险都低，必须能说明“为什么低”，否则评估本身站不住。";
+    }
+    document.getElementById("drVerdict").innerHTML = v;
+  }
+
+  function bindSeg(id, key) {
+    var seg = document.getElementById(id);
+    seg.addEventListener("click", function (e) {
+      var btn = e.target.closest("button");
+      if (!btn) return;
+      Array.prototype.forEach.call(seg.children, function (c) {
+        c.setAttribute("aria-pressed", "false");
+      });
+      btn.setAttribute("aria-pressed", "true");
+      state[key] = parseFloat(btn.getAttribute("data-v"));
+      updateRisk();
+    });
+  }
+  bindSeg("segIR", "IR");
+  bindSeg("segCR", "CR");
+  updateRisk();
+
+  /* ============ 03 重要性 ============ */
+  var baseNum = document.getElementById("baseNum");
+  var basePct = document.getElementById("basePct");
+
+  function updateMat() {
+    var base = parseFloat(baseNum.value) || 0;
+    var pct = parseFloat(basePct.value) / 100;
+    var overall = base * pct;
+    var perf = overall * 0.75;
+    var trivial = overall * 0.05;
+    document.getElementById("mOverall").textContent = overall.toFixed(1);
+    document.getElementById("mPerf").textContent = perf.toFixed(1);
+    document.getElementById("mTrivial").textContent = trivial.toFixed(1);
+  }
+  baseNum.addEventListener("input", updateMat);
+  basePct.addEventListener("change", updateMat);
+  updateMat();
+
+  /* ============ 04 循环 ============ */
+  var LOOPS = [
+    { tag: "REVENUE", h: "销售与收款", p: "虚增收入是最常见的舞弊方向：提前确认、关联方走单、阴阳合同。审计重点在截止测试与函证。" },
+    { tag: "PROCUREMENT", h: "采购与付款", p: "关注供应商是否真实存在、价格是否公允、有没有体外循环。重点查工商信息与资金流向。" },
+    { tag: "INVENTORY", h: "存货与成本", p: "存货是“最难查”的科目：监盘要看得到、盘得准，成本核算要验算单位成本与完工进度。" },
+    { tag: "PAYROLL", h: "薪酬与人事", p: "典型问题是在册人数虚增、“吃空饷”。用社保缴纳记录与工资表交叉核对最有效。" },
+    { tag: "CASH", h: "货币资金", p: "看似最简单，实则风险最高：资金占用、存贷双高、受限资金未披露。银行函证不可替代。" },
+    { tag: "FINANCING", h: "投资与筹资", p: "关注金融工具分类、商誉减值测试的关键假设、担保与或有负债是否完整披露。" }
+  ];
+  var grid = document.getElementById("loopGrid");
+  LOOPS.forEach(function (l) {
+    var d = document.createElement("div");
+    d.className = "loop";
+    d.innerHTML = '<span class="tag">' + l.tag + '</span><h4>' + l.h + '</h4><p>' + l.p + '</p>';
+    grid.appendChild(d);
+  });
+
+  /* ============ 05 意见类型 ============ */
+  var OPS = [
+    { cls: "ok", name: "无保留意见", mark: "Unmodified", body: "财务报表在所有重大方面按照适用的财务报告编制基础编制，公允反映。" },
+    { cls: "emp", name: "带强调事项段的无保留意见", mark: "Emphasis of Matter", body: "意见本身仍是干净的，但需要提醒使用者关注某个已充分披露的事项（如重大诉讼、持续经营重大不确定性）。" },
+    { cls: "qual", name: "保留意见", mark: "Qualified",
+      body: "错报重大但不具有广泛性；或无法获取充分适当的审计证据，且可能的影响重大但不具有广泛性。",
+      cond: "除……的影响外，财务报表在所有重大方面公允反映" },
+    { cls: "bad", name: "否定意见", mark: "Adverse", body: "错报重大且具有广泛性——报表整体已经失真，不能公允反映。",
+      cond: "由于……的影响，财务报表没有在所有重大方面公允反映" },
+    { cls: "dis", name: "无法表示意见", mark: "Disclaimer", body: "无法获取充分适当的审计证据，且可能的影响重大且具有广泛性——审计范围受到严重限制。",
+      cond: "我们不对财务报表发表意见" }
+  ];
+  var opList = document.getElementById("opList");
+  OPS.forEach(function (o) {
+    var d = document.createElement("div");
+    d.className = "op " + o.cls;
+    var html = '<div class="row"><span class="name">' + o.name + '</span><span class="mark">' + o.mark + '</span></div>';
+    html += '<div class="body">' + o.body;
+    if (o.cond) {
+      html += '<span class="cond"><span>报告措辞：</span>' + o.cond + '</span>';
+    }
+    html += '</div>';
+    d.innerHTML = html;
+    d.addEventListener("click", function () { d.classList.toggle("open"); });
+    opList.appendChild(d);
+  });
+})();
+</script>
+</body>
+</html>
